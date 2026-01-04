@@ -3,66 +3,65 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="Registro Auxiliar", layout="wide")
-
-st.title("📝 Registro Auxiliar de Notas")
+# Configuración
+st.set_page_config(page_title="Registro Auxiliar", layout="centered")
+st.title("📝 Registro de Notas")
 
 # 1. Conexión
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. Formulario de entrada
-with st.form(key="formulario_registro"):
-    col1, col2 = st.columns(2)
+# 2. Formulario
+with st.form(key="form_registro"):
+    nombre = st.text_input("Nombre del Estudiante:")
+    comp = st.selectbox("Competencia:", ["Lee diversos textos", "Escribe diversos textos", "Se comunica oralmente"])
+    sesion_nombre = st.text_input("Nombre de la Sesión:")
+    calificacion = st.number_input("Nota (0-20):", min_value=0, max_value=20, step=1)
     
-    with col1:
-        nombre = st.text_input("Nombre del Estudiante:")
-        competencia = st.selectbox("Competencia:", [
-            "Lee diversos tipos de textos escritos",
-            "Escribe diversos tipos de textos",
-            "Se comunica oralmente"
-        ])
-    
-    with col2:
-        sesion = st.text_input("Sesión / Actividad:")
-        nota = st.number_input("Calificación (0-20):", min_value=0, max_value=20, step=1)
-    
-    boton_guardar = st.form_submit_button("Registrar en Excel")
+    boton_enviar = st.form_submit_button("Guardar Registro")
 
-# 3. Lógica para GUARDAR (Append)
-if boton_guardar:
-    if nombre.strip() != "" and sesion.strip() != "":
+# 3. Lógica para añadir datos
+if boton_enviar:
+    if nombre.strip() != "" and sesion_nombre.strip() != "":
         try:
-            # LEER lo que ya existe
+            # LEER: Obtenemos lo que ya hay en el Excel
+            # ttl=0 es obligatorio para que no use datos viejos de la memoria
             df_existente = conn.read(worksheet="Sheet1", ttl=0)
             
-            # Limpiar filas vacías que Google Sheets a veces añade
+            # Limpiar el Excel de filas vacías
             df_existente = df_existente.dropna(how="all")
 
-            # CREAR la nueva fila (Asegúrate de que los nombres coincidan con el Excel)
+            # CREAR: La nueva fila con los nombres EXACTOS de tus encabezados
             nueva_fila = pd.DataFrame([{
                 "Fecha": datetime.now().strftime("%d/%m/%Y"),
                 "Estudiante": nombre,
-                "Competencia": competencia,
-                "Sesion": sesion,
-                "Calificacion": nota
+                "Competencia": comp,
+                "Sesion": sesion_nombre,
+                "Nota": calificacion
             }])
             
-            # CONCATENAR (Unir viejo + nuevo)
-            df_final = pd.concat([df_existente, nueva_fila], ignore_index=True)
+            # UNIR: Si está vacío, el nuevo es el primero. Si no, se pega abajo.
+            if df_existente.empty:
+                df_final = nueva_fila
+            else:
+                df_final = pd.concat([df_existente, nueva_fila], ignore_index=True)
             
-            # SUBIR al Excel
+            # ACTUALIZAR: Se envía la lista completa al Excel
             conn.update(worksheet="Sheet1", data=df_final)
             
-            st.success(f"✅ ¡Registrado con éxito! {nombre} ha sido añadido.")
+            st.success(f"✅ ¡Registrado! {nombre} se añadió a la lista.")
             st.balloons()
             
         except Exception as e:
-            st.error(f"Error crítico: {e}")
+            st.error(f"Hubo un problema: {e}")
     else:
-        st.warning("⚠️ Por favor, completa el nombre y la sesión.")
+        st.warning("⚠️ Completa el nombre y la sesión.")
 
-# 4. Visualización
+# 4. Ver registros
 st.divider()
-if st.button("🔄 Actualizar y Ver Tabla"):
+if st.button("🔄 Ver Registro Auxiliar"):
+    # Volvemos a leer para mostrar lo último
     df_ver = conn.read(worksheet="Sheet1", ttl=0)
-    st.dataframe(df_ver, use_container_width=True)
+    if not df_ver.empty:
+        st.dataframe(df_ver, use_container_width=True)
+    else:
+        st.info("La hoja está vacía.")
