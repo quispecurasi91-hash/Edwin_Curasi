@@ -1,49 +1,68 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
+from datetime import datetime
 
-st.set_page_config(page_title="Registro de Notas", page_icon="📝")
-st.title("📝 Registro de Notas")
+st.set_page_config(page_title="Registro Auxiliar", layout="wide")
 
-# Conexión
+st.title("📝 Registro Auxiliar de Notas")
+
+# 1. Conexión
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Formulario
-with st.form(key="my_form"):
-    nombre = st.text_input("Nombre del Estudiante")
-    nota = st.number_input("Nota", min_value=0, max_value=20)
-    boton_enviar = st.form_submit_button("Registrar")
+# 2. Formulario de entrada
+with st.form(key="formulario_registro"):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        nombre = st.text_input("Nombre del Estudiante:")
+        competencia = st.selectbox("Competencia:", [
+            "Lee diversos tipos de textos escritos",
+            "Escribe diversos tipos de textos",
+            "Se comunica oralmente"
+        ])
+    
+    with col2:
+        sesion = st.text_input("Sesión / Actividad:")
+        nota = st.number_input("Calificación (0-20):", min_value=0, max_value=20, step=1)
+    
+    boton_guardar = st.form_submit_button("Registrar en Excel")
 
-if boton_enviar:
-    if nombre:
+# 3. Lógica para GUARDAR (Append)
+if boton_guardar:
+    if nombre.strip() != "" and sesion.strip() != "":
         try:
-            # 1. LEER DATOS ACTUALES (ttl=0 es vital para no leer datos viejos)
-            df_previo = conn.read(worksheet="Sheet1", ttl=0)
+            # LEER lo que ya existe
+            df_existente = conn.read(worksheet="Sheet1", ttl=0)
             
-            # Limpiar datos vacíos si los hay
-            df_previo = df_previo.dropna(how="all")
+            # Limpiar filas vacías que Google Sheets a veces añade
+            df_existente = df_existente.dropna(how="all")
 
-            # 2. CREAR NUEVO REGISTRO
-            nuevo_registro = pd.DataFrame([{"Estudiante": nombre, "Nota": nota}])
+            # CREAR la nueva fila (Asegúrate de que los nombres coincidan con el Excel)
+            nueva_fila = pd.DataFrame([{
+                "Fecha": datetime.now().strftime("%d/%m/%Y"),
+                "Estudiante": nombre,
+                "Competencia": competencia,
+                "Sesion": sesion,
+                "Calificacion": nota
+            }])
             
-            # 3. UNIR (Si la hoja estaba vacía, solo usa el nuevo)
-            if df_previo.empty:
-                df_final = nuevo_registro
-            else:
-                df_final = pd.concat([df_previo, nuevo_registro], ignore_index=True)
+            # CONCATENAR (Unir viejo + nuevo)
+            df_final = pd.concat([df_existente, nueva_fila], ignore_index=True)
             
-            # 4. ACTUALIZAR LA HOJA
+            # SUBIR al Excel
             conn.update(worksheet="Sheet1", data=df_final)
             
-            st.success(f"✅ ¡Registrado! Ahora hay {len(df_final)} alumnos en la lista.")
-            st.balloons() # Animación para confirmar
+            st.success(f"✅ ¡Registrado con éxito! {nombre} ha sido añadido.")
+            st.balloons()
+            
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"Error crítico: {e}")
     else:
-        st.warning("Escribe un nombre.")
+        st.warning("⚠️ Por favor, completa el nombre y la sesión.")
 
-# Visualización
+# 4. Visualización
 st.divider()
-if st.button("Ver lista completa"):
+if st.button("🔄 Actualizar y Ver Tabla"):
     df_ver = conn.read(worksheet="Sheet1", ttl=0)
-    st.dataframe(df_ver)
+    st.dataframe(df_ver, use_container_width=True)
