@@ -3,67 +3,88 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="Registro Secuencial", layout="centered")
+# Configuración de la página
+st.set_page_config(page_title="Panel de Control Docente", layout="wide")
 
-st.title("📝 Registro de Estudiantes en Serie")
-st.info("Introduce los datos y presiona 'Guardar'. El sistema quedará listo para el siguiente alumno.")
+# Título principal
+st.title("📊 Registro Auxiliar Inteligente")
 
 # 1. Conexión
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. Formulario de entrada
-# Usamos 'clear_on_submit=True' para que el nombre se borre al terminar y puedas escribir el siguiente rápido
-with st.form(key="registro_form", clear_on_submit=True):
-    nombre = st.text_input("Nombre completo del Estudiante:")
-    comp = st.selectbox("Competencia:", [
-        "Lee diversos tipos de textos escritos", 
-        "Escribe diversos tipos de textos", 
-        "Se comunica oralmente"
-    ])
-    actividad = st.text_input("Sesión / Actividad:")
-    nota = st.number_input("Calificación:", min_value=0, max_value=20, step=1)
-    
-    submit = st.form_submit_button("Guardar y Continuar con otro")
-
-# 3. Lógica de Guardado Secuencial
-if submit:
-    if nombre.strip() != "":
-        try:
-            # LEER: Traemos lo que ya existe en la pestaña DATOS
-            df_actual = conn.read(worksheet="DATOS", ttl=0)
-            df_actual = df_actual.dropna(how="all")
-
-            # CREAR: La nueva fila
-            nueva_fila = pd.DataFrame([{
-                "Fecha": datetime.now().strftime("%d/%m/%Y"),
-                "Estudiante": nombre,
-                "Competencia": comp,
-                "Actividad": actividad,
-                "Puntaje": nota
-            }])
-            
-            # UNIR: Ponemos el nuevo debajo de los anteriores
-            df_final = pd.concat([df_actual, nueva_fila], ignore_index=True)
-            
-            # ACTUALIZAR: Subimos todo al Excel
-            conn.update(worksheet="DATOS", data=df_final)
-            
-            st.success(f"✅ {nombre} guardado. ¡Puedes ingresar al siguiente!")
-            
-        except Exception as e:
-            st.error(f"Error al guardar: {e}")
-    else:
-        st.warning("⚠️ El nombre no puede estar vacío.")
-
-# 4. Tabla en tiempo real (Para que veas la secuencia)
-st.divider()
-st.subheader("📋 Lista de alumnos registrados hoy")
+# 2. Cargar datos al inicio para las métricas
 try:
-    # Mostramos la tabla actualizada para confirmar que se están acumulando
-    df_visualizacion = conn.read(worksheet="DATOS", ttl=0)
-    if not df_visualizacion.empty:
-        st.table(df_visualizacion.tail(10)) # Muestra los últimos 10 registrados
-    else:
-        st.write("Aún no hay alumnos en la lista.")
+    df_base = conn.read(worksheet="DATOS", ttl=0)
+    df_base = df_base.dropna(how="all")
 except:
-    st.write("Conectando con la base de datos...")
+    df_base = pd.DataFrame()
+
+# --- BARRA LATERAL (SIDEBAR) PARA ENTRADA DE DATOS ---
+with st.sidebar:
+    st.header("📝 Nuevo Registro")
+    with st.form(key="form_registro", clear_on_submit=True):
+        nombre = st.text_input("Estudiante:")
+        comp = st.selectbox("Competencia:", [
+            "Lee diversos tipos de textos escritos",
+            "Escribe diversos tipos de textos",
+            "Se comunica oralmente"
+        ])
+        act = st.text_input("Actividad/Sesión:")
+        nota = st.number_input("Nota (0-20):", min_value=0, max_value=20, step=1)
+        
+        submit = st.form_submit_button("💾 Guardar en Registro")
+
+    st.divider()
+    st.info("Consejo: Usa nombres completos para evitar confusiones en el buscador.")
+
+# --- LÓGICA DE GUARDADO ---
+if submit:
+    if nombre:
+        nueva_fila = pd.DataFrame([{
+            "Fecha_Reg": datetime.now().strftime("%d/%m/%Y"),
+            "Alumno_Nombre": nombre,
+            "Competencia_Area": comp,
+            "Actividad_Sesion": act,
+            "Nota_Final": nota
+        }])
+        
+        df_final = pd.concat([df_base, nueva_fila], ignore_index=True)
+        conn.update(worksheet="DATOS", data=df_final)
+        st.sidebar.success(f"✅ ¡{nombre} registrado!")
+        st.rerun() # Recarga la app para actualizar métricas y tabla
+
+# --- PANEL PRINCIPAL (MÉTRICAS Y TABLA) ---
+if not df_base.empty:
+    # 1. Métricas rápidas
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Registros", len(df_base))
+    with col2:
+        promedio = df_base["Nota_Final"].mean()
+        st.metric("Promedio Grupal", f"{promedio:.1f}")
+    with col3:
+        aprobados = len(df_base[df_base["Nota_Final"] >= 11])
+        st.metric("Aprobados", aprobados)
+
+    st.divider()
+
+    # 2. Buscador y Filtros
+    st.subheader("🔍 Consulta de Datos")
+    busqueda = st.text_input("Buscar por nombre del estudiante:")
+    
+    # Aplicar filtro
+    df_filtrado = df_base[df_base["Alumno_Nombre"].str.contains(busqueda, case=False, na=False)]
+    
+    # 3. Mostrar Tabla
+    st.dataframe(df_filtrado, use_container_width=True)
+
+    # 4. Botón de Descarga
+    csv = df_filtrado.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Descargar esta vista en CSV",
+        data=csv,
+        file_name=f"registro_{datetime.now().strftime('%Y%m%d')}.csv",
+        mime="text/csv",
+    )
+else:
+    st.warning("Aún no hay datos registrados. Usa el panel de la izquierda para empezar.")
