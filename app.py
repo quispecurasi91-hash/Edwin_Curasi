@@ -3,65 +3,67 @@ from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
-# Configuración
-st.set_page_config(page_title="Registro Auxiliar", layout="centered")
-st.title("📝 Registro de Notas")
+st.set_page_config(page_title="Registro Secuencial", layout="centered")
+
+st.title("📝 Registro de Estudiantes en Serie")
+st.info("Introduce los datos y presiona 'Guardar'. El sistema quedará listo para el siguiente alumno.")
 
 # 1. Conexión
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. Formulario
-with st.form(key="form_registro"):
-    nombre = st.text_input("Nombre del Estudiante:")
-    comp = st.selectbox("Competencia:", ["Lee diversos textos", "Escribe diversos textos", "Se comunica oralmente"])
-    sesion_nombre = st.text_input("Nombre de la Sesión:")
-    calificacion = st.number_input("Nota (0-20):", min_value=0, max_value=20, step=1)
+# 2. Formulario de entrada
+# Usamos 'clear_on_submit=True' para que el nombre se borre al terminar y puedas escribir el siguiente rápido
+with st.form(key="registro_form", clear_on_submit=True):
+    nombre = st.text_input("Nombre completo del Estudiante:")
+    comp = st.selectbox("Competencia:", [
+        "Lee diversos tipos de textos escritos", 
+        "Escribe diversos tipos de textos", 
+        "Se comunica oralmente"
+    ])
+    actividad = st.text_input("Sesión / Actividad:")
+    nota = st.number_input("Calificación:", min_value=0, max_value=20, step=1)
     
-    boton_enviar = st.form_submit_button("Guardar Registro")
+    submit = st.form_submit_button("Guardar y Continuar con otro")
 
-# 3. Lógica para añadir datos
-if boton_enviar:
-    if nombre.strip() != "" and sesion_nombre.strip() != "":
+# 3. Lógica de Guardado Secuencial
+if submit:
+    if nombre.strip() != "":
         try:
-            # LEER: Obtenemos lo que ya hay en el Excel
-            # ttl=0 es obligatorio para que no use datos viejos de la memoria
-            df_existente = conn.read(worksheet="Sheet1", ttl=0)
-            
-            # Limpiar el Excel de filas vacías
-            df_existente = df_existente.dropna(how="all")
+            # LEER: Traemos lo que ya existe en la pestaña DATOS
+            df_actual = conn.read(worksheet="DATOS", ttl=0)
+            df_actual = df_actual.dropna(how="all")
 
-            # CREAR: La nueva fila con los nombres EXACTOS de tus encabezados
+            # CREAR: La nueva fila
             nueva_fila = pd.DataFrame([{
                 "Fecha": datetime.now().strftime("%d/%m/%Y"),
                 "Estudiante": nombre,
                 "Competencia": comp,
-                "Sesion": sesion_nombre,
-                "Nota": calificacion
+                "Actividad": actividad,
+                "Puntaje": nota
             }])
             
-            # UNIR: Si está vacío, el nuevo es el primero. Si no, se pega abajo.
-            if df_existente.empty:
-                df_final = nueva_fila
-            else:
-                df_final = pd.concat([df_existente, nueva_fila], ignore_index=True)
+            # UNIR: Ponemos el nuevo debajo de los anteriores
+            df_final = pd.concat([df_actual, nueva_fila], ignore_index=True)
             
-            # ACTUALIZAR: Se envía la lista completa al Excel
-            conn.update(worksheet="Sheet1", data=df_final)
+            # ACTUALIZAR: Subimos todo al Excel
+            conn.update(worksheet="DATOS", data=df_final)
             
-            st.success(f"✅ ¡Registrado! {nombre} se añadió a la lista.")
-            st.balloons()
+            st.success(f"✅ {nombre} guardado. ¡Puedes ingresar al siguiente!")
             
         except Exception as e:
-            st.error(f"Hubo un problema: {e}")
+            st.error(f"Error al guardar: {e}")
     else:
-        st.warning("⚠️ Completa el nombre y la sesión.")
+        st.warning("⚠️ El nombre no puede estar vacío.")
 
-# 4. Ver registros
+# 4. Tabla en tiempo real (Para que veas la secuencia)
 st.divider()
-if st.button("🔄 Ver Registro Auxiliar"):
-    # Volvemos a leer para mostrar lo último
-    df_ver = conn.read(worksheet="Sheet1", ttl=0)
-    if not df_ver.empty:
-        st.dataframe(df_ver, use_container_width=True)
+st.subheader("📋 Lista de alumnos registrados hoy")
+try:
+    # Mostramos la tabla actualizada para confirmar que se están acumulando
+    df_visualizacion = conn.read(worksheet="DATOS", ttl=0)
+    if not df_visualizacion.empty:
+        st.table(df_visualizacion.tail(10)) # Muestra los últimos 10 registrados
     else:
-        st.info("La hoja está vacía.")
+        st.write("Aún no hay alumnos en la lista.")
+except:
+    st.write("Conectando con la base de datos...")
