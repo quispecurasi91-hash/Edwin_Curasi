@@ -1,92 +1,53 @@
 import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-import datetime
 
-# 1. CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(
-    page_title="Registro Auxiliar de Comunicación",
-    page_icon="📝",
-    layout="centered"
-)
+# Configuración de la página
+st.set_page_config(page_title="Registro de Notas", page_icon="📝")
 
-# 2. TÍTULO Y DESCRIPCIÓN
-st.title("📝 Registro de Progreso - Comunicación")
-st.markdown("""
-Bienvenido a la plataforma de evaluación. Al finalizar tu sesión, 
-completa los datos para registrar tu progreso de aprendizaje.
-""")
+st.title("📝 Sistema de Registro de Notas")
+st.markdown("Introduce los datos del estudiante a continuación:")
 
-# 3. ENLACE A TU HOJA DE CÁLCULO
-# REEMPLAZA EL ENLACE DE ABAJO POR EL DE TU PROPIA HOJA DE GOOGLE
-URL_HOJA = "https://docs.google.com/spreadsheets/d/11sselcGsX_76mlaL6nK5VpJQyxXVmT9xXyMo_3IHBj0/edit?usp=sharing"
-
-# Establecer la conexión
+# 1. Conexión con Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# Intentar leer los datos actuales de la hoja
-try:
-    df_existente = conn.read(spreadsheet=URL_HOJA, usecols=[0, 1, 2, 3, 4])
-    df_existente = df_existente.dropna(how="all")
-except Exception:
-    # Si la hoja está vacía, creamos la estructura básica
-    df_existente = pd.DataFrame(columns=["Fecha", "Estudiante", "Sesión", "Competencia", "Nota"])
+# 2. Formulario de entrada
+with st.form(key="formulario_notas"):
+    nombre = st.text_input("Nombre del Estudiante:")
+    nota = st.number_input("Nota Final:", min_value=0.0, max_value=20.0, step=0.1)
+    submit_button = st.form_submit_button(label="Registrar Nota")
 
-# --- SECCIÓN A: FORMULARIO PARA EL ESTUDIANTE ---
-st.subheader("👨‍🎓 Formulario de Salida")
-
-with st.form("registro_notas"):
-    nombre = st.text_input("Nombre y Apellido del Estudiante:")
-    
-    sesion = st.selectbox("Selecciona la Sesión de hoy:", [
-        "Sesión 1: Comprensión de textos argumentativos",
-        "Sesión 2: Elaboración de ensayos",
-        "Sesión 3: El debate y la expresión oral"
-    ])
-    
-    competencia = st.selectbox("Competencia trabajada:", [
-        "Lee diversos tipos de textos escritos",
-        "Escribe diversos tipos de textos",
-        "Se comunica oralmente en su lengua materna"
-    ])
-    
-    # Aquí el estudiante pone su nota o el resultado de su práctica
-    nota = st.number_input("Calificación obtenida (0-20):", min_value=0, max_value=20, step=1)
-    
-    boton_enviar = st.form_submit_button("Registrar mi nota")
-
-    if boton_enviar:
-        if nombre.strip() == "":
-            st.error("Por favor, escribe tu nombre antes de enviar.")
-        else:
-            # Crear la nueva fila con los datos
-            nueva_fila = pd.DataFrame([{
-                "Fecha": datetime.date.today().strftime("%d/%m/%Y"),
-                "Estudiante": nombre,
-                "Sesión": sesion,
-                "Competencia": competencia,
-                "Nota": nota
-            }])
+# 3. Lógica al presionar el botón
+if submit_button:
+    if nombre.strip() != "":
+        try:
+            # LEER: Traemos lo que ya existe (ttl=0 para que sea en tiempo real)
+            df_existente = conn.read(worksheet="Sheet1", ttl=0)
             
-            # Unir los datos nuevos con los que ya existían
-            df_final = pd.concat([df_existente, nueva_fila], ignore_index=True)
+            # CREAR: Nueva fila con los datos
+            nuevo_dato = pd.DataFrame([{"Estudiante": nombre, "Nota": nota}])
             
-            # Actualizar la hoja de Google Sheets
-            conn.update(spreadsheet=URL_HOJA, data=df_final)
+            # UNIR: Ponemos el nuevo dato debajo de los anteriores
+            df_final = pd.concat([df_existente, nuevo_dato], ignore_index=True)
             
-            st.success(f"¡Excelente trabajo, {nombre}! Tu nota ha sido registrada.")
-            st.balloons()
-
-# --- SECCIÓN B: VISTA DEL DOCENTE (OPCIONAL) ---
-st.divider()
-with st.expander("📊 Ver Registro Auxiliar (Solo Docente)"):
-    if not df_existente.empty:
-        st.write("Aquí puedes ver el progreso acumulado de todos los estudiantes:")
-        st.dataframe(df_existente)
-        
-        # Un pequeño gráfico para ver promedios
-        st.subheader("Promedio por Competencia")
-        promedios = df_existente.groupby("Competencia")["Nota"].mean()
-        st.bar_chart(promedios)
+            # ACTUALIZAR: Subimos la lista completa al Excel
+            conn.update(worksheet="Sheet1", data=df_final)
+            
+            st.success(f"✅ ¡{nombre} registrado con éxito!")
+        except Exception as e:
+            st.error(f"Error al conectar con Google Sheets: {e}")
     else:
-        st.info("Aún no hay datos registrados en la hoja de cálculo.")
+        st.warning("⚠️ Por favor, escribe un nombre antes de registrar.")
+
+# 4. Visualización de los datos registrados
+st.divider()
+if st.button("🔄 Ver / Actualizar Registro Auxiliar"):
+    try:
+        datos = conn.read(worksheet="Sheet1", ttl=0)
+        if not datos.empty:
+            st.subheader("Lista de Estudiantes Registrados")
+            st.dataframe(datos, use_container_width=True)
+        else:
+            st.info("Aún no hay datos en la hoja.")
+    except:
+        st.error("No se pudo leer la hoja. Asegúrate de que la pestaña se llame 'Sheet1'.")
