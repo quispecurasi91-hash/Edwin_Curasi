@@ -2,52 +2,48 @@ import streamlit as st
 from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 
-# Configuración de la página
 st.set_page_config(page_title="Registro de Notas", page_icon="📝")
+st.title("📝 Registro de Notas")
 
-st.title("📝 Sistema de Registro de Notas")
-st.markdown("Introduce los datos del estudiante a continuación:")
-
-# 1. Conexión con Google Sheets
+# Conexión
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 2. Formulario de entrada
-with st.form(key="formulario_notas"):
-    nombre = st.text_input("Nombre del Estudiante:")
-    nota = st.number_input("Nota Final:", min_value=0.0, max_value=20.0, step=0.1)
-    submit_button = st.form_submit_button(label="Registrar Nota")
+# Formulario
+with st.form(key="my_form"):
+    nombre = st.text_input("Nombre del Estudiante")
+    nota = st.number_input("Nota", min_value=0, max_value=20)
+    boton_enviar = st.form_submit_button("Registrar")
 
-# 3. Lógica al presionar el botón
-if submit_button:
-    if nombre.strip() != "":
+if boton_enviar:
+    if nombre:
         try:
-            # LEER: Traemos lo que ya existe (ttl=0 para que sea en tiempo real)
-            df_existente = conn.read(worksheet="Sheet1", ttl=0)
+            # 1. LEER DATOS ACTUALES (ttl=0 es vital para no leer datos viejos)
+            df_previo = conn.read(worksheet="Sheet1", ttl=0)
             
-            # CREAR: Nueva fila con los datos
-            nuevo_dato = pd.DataFrame([{"Estudiante": nombre, "Nota": nota}])
+            # Limpiar datos vacíos si los hay
+            df_previo = df_previo.dropna(how="all")
+
+            # 2. CREAR NUEVO REGISTRO
+            nuevo_registro = pd.DataFrame([{"Estudiante": nombre, "Nota": nota}])
             
-            # UNIR: Ponemos el nuevo dato debajo de los anteriores
-            df_final = pd.concat([df_existente, nuevo_dato], ignore_index=True)
+            # 3. UNIR (Si la hoja estaba vacía, solo usa el nuevo)
+            if df_previo.empty:
+                df_final = nuevo_registro
+            else:
+                df_final = pd.concat([df_previo, nuevo_registro], ignore_index=True)
             
-            # ACTUALIZAR: Subimos la lista completa al Excel
+            # 4. ACTUALIZAR LA HOJA
             conn.update(worksheet="Sheet1", data=df_final)
             
-            st.success(f"✅ ¡{nombre} registrado con éxito!")
+            st.success(f"✅ ¡Registrado! Ahora hay {len(df_final)} alumnos en la lista.")
+            st.balloons() # Animación para confirmar
         except Exception as e:
-            st.error(f"Error al conectar con Google Sheets: {e}")
+            st.error(f"Error: {e}")
     else:
-        st.warning("⚠️ Por favor, escribe un nombre antes de registrar.")
+        st.warning("Escribe un nombre.")
 
-# 4. Visualización de los datos registrados
+# Visualización
 st.divider()
-if st.button("🔄 Ver / Actualizar Registro Auxiliar"):
-    try:
-        datos = conn.read(worksheet="Sheet1", ttl=0)
-        if not datos.empty:
-            st.subheader("Lista de Estudiantes Registrados")
-            st.dataframe(datos, use_container_width=True)
-        else:
-            st.info("Aún no hay datos en la hoja.")
-    except:
-        st.error("No se pudo leer la hoja. Asegúrate de que la pestaña se llame 'Sheet1'.")
+if st.button("Ver lista completa"):
+    df_ver = conn.read(worksheet="Sheet1", ttl=0)
+    st.dataframe(df_ver)
